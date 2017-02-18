@@ -1,3 +1,4 @@
+"""A simple scheduling problem for demonstrating the functionality of the scheduler."""
 from scheduler import Timetable
 from scheduler.exceptions import ImpossibleAssignments
 
@@ -7,13 +8,13 @@ lecture_list = [
     'Neuroinformatics',
     'Human-Computer Interfaces',
 ]
-# name lectures[] days[] times
+# name lectures[] days[] times[]
 instructor_list = [
     ['Kühnberger', ['Methods of AI', 'Human-Computer Interfaces', 'Neuroinformatics'],
         ['Mon', 'Wed'], []],
     ['Potyka', ['Methods of AI'], [], ['10-12', '12-14']]
 ]
-# number lectures days times
+# number lectures[] days[] times[]
 room_list = [
     [1, ['Methods of AI'], ['Mon', 'Thu'], []],
     [2, ['Human-Computer Interfaces', 'Neuroinformatics'], ['Mon', 'Thu'], []],
@@ -30,22 +31,11 @@ timeslot_list = [
 
 
 timetable = Timetable(lecture_list, instructor_list, room_list, timeslot_list,
-                      max_lectures_per_instructor=5)
+                      max_lectures_per_instructor=3)
 
-# print(timetable)
-# print(repr(timetable))
-# print("\n")
-# print(str(timetable._assignments))
-# print("""
-# 
-# 
-# """)
 
-# print('vars:', vars(timetable._instructors[0]))
-# print(vars(timetable._instructors[1]))
-print("\n")
 try:
     timetable.find_schedule()
-    print('schedule: ', timetable._schedule)
+    print(timetable)
 except ImpossibleAssignments as e:
     print(e)

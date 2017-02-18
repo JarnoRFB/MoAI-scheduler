@@ -32,6 +32,18 @@ class Assignment():
                     self._room.can_be_used_for(lecture))
         return satisfies
     
+    def overlaps_instructor_at_time(self, other):
+        """
+        Check whether another assignment uses the same instructor at the same time.
+        """
+        return self._instructor == other._instructor and self._timeslot == other._timeslot 
+    
+    def overlaps_room_at_time(self, other):
+        """
+        Check whether another assignment uses the same room at the same time.
+        """
+        return self._room == other._room and self._timeslot == other._timeslot 
+    
     def __eq__(self, other):
         
         if not isinstance(other, Assignment):

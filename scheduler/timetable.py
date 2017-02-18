@@ -1,11 +1,12 @@
 from scheduler import Timeslot, Room, Instructor
 from scheduler.assignment import Assignment
 from scheduler.exceptions import ImpossibleAssignments
-from scheduler.helper import format_for_print
+from scheduler.helper import format_for_print, sort_dict_by_mrv
 from copy import deepcopy
 import warnings
 from collections import Counter
 from pandas import DataFrame
+import time
 
 
 class Timetable():
@@ -27,17 +28,17 @@ class Timetable():
         self._schedule_df = None
         self._assignments = self._construct_assignments()
         self._max_lectures_per_instructor = max_lectures_per_instructor
+ 
     
+# ----------------------- methods for scheduling -----------------------
 
     def find_schedule(self):
         """Schedule the timetable."""
         # Use a dictionary to map an assignment to each lecture.
-        schedule = {lecture: None for lecture in self._lectures}
-        # Keep track of what can be assigned in a set.
-        assignable = set(self._assignments)
-    
+        schedule = self._init_schedule_dict()
+
         try:
-            final_schedule = self._assign_values(schedule, assignable)
+            final_schedule = self._assign_values(schedule)
             self._scheduled = True
             self._schedule = final_schedule
             self._schedule_df = self._save_schedule_in_dataframe()
@@ -45,7 +46,7 @@ class Timetable():
             raise ImpossibleAssignments( 'Unable to find schedule without violating constraints.' )
              
         
-    def _assign_values(self, schedule, assignable):
+    def _assign_values(self, schedule):
         """
         Assign an unassigned variable and traverse the search tree further.
         
@@ -54,72 +55,129 @@ class Timetable():
             assignable (set): The values that have not yet been assigned.
         """
         # base case 
-        if None not in schedule.values():
+        if self._schedule_complete(schedule):
             return schedule
         
+        # Print the current state of the scheduler every ten seconds.
+        if int(time.time()) % 10 == 0:
+            print('\n')
+            print(schedule)
+            n_assigned = 0
+            for a in schedule.values():
+                if not isinstance(a, set): n_assigned += 1
+            print('assigned: ', n_assigned)
+            print(list(self._get_unassigned_vars(schedule)))
+
         schedule = deepcopy(schedule)
-        assignable = deepcopy(assignable)
-        unassigned_vars = (lecture for lecture, assignment in schedule.items() 
-                           if assignment is None)
-        for lecture in unassigned_vars:
-            for assignment in assignable:
-                if assignment.satisfies_constraints(lecture):
-                    schedule[lecture] = assignment
-                    # Check for global constraints.
-                    if self._satisfies_higher_order_constraints(schedule):
-                        
-                        left_assignables = deepcopy(assignable)
-                        left_assignables.remove(assignment)
-                        try:
-                            # Recursively call the function to traverse the search tree.
-                            return self._assign_values(schedule, left_assignables)
-                        except ImpossibleAssignments:
-                            continue
-                    else:
-                        # Remove invalid assignment if higher order constraints are violated.
-                        schedule[lecture] = None
+        for lecture in self._get_unassigned_vars(schedule, sort=True):
+            # Iterate over domain.
+            domain = deepcopy(schedule[lecture])
+            for assignment in domain:
+                schedule[lecture] = assignment
+                # Propagate constraints.
+                try:
+                    reduced_domains_schedule = self._reduce_domains(deepcopy(schedule), assignment)
+                    reduced_domains_schedule = self._resolve_small_domains(reduced_domains_schedule)
+                    # Recursively call the function to traverse the search tree.
+                    return self._assign_values(reduced_domains_schedule)
+                except ImpossibleAssignments:
+                    # Remove invalid assignment and restore domain if higher order constraints cause 
+                    # domain to become empty.
+                    schedule[lecture] = domain
+                    continue
+                
+
                         
         # No assignment could be found for any lecture at this point.
         raise ImpossibleAssignments('No assignment could be found for any lecture at this point.')
     
+    def _reduce_domains(self, schedule, new_assignment):
+        """Reduce domains by propagating constraints.""" 
+        busy_instructors = self._get_busy_instructors(schedule)
         
-    def _satisfies_higher_order_constraints(self, schedule):
-        """Check for satisfaction of higher order constraints."""
-        return (self._satisfies_maximal_number_of_instructor(schedule) and
-                self._satisfies_instructor_double_occupancy(schedule) and
-                self._satisfies_room_double_occupancy(schedule))
+        for lecture in self._get_unassigned_vars(schedule):
+            # Remove the newly assigned value from any other domain.
+            schedule[lecture].discard(new_assignment)
+            # Check whether the removal makes the domain empty.
+            if not schedule[lecture]:
+                raise ImpossibleAssignments('Assignment leads to inconsistencies.')
+            domain = deepcopy(schedule[lecture])
+            for assignment in domain:
+                # Remove values from other domains if they cointain the same instructor at the same time.
+                # Remove values from other domains if they cointain the same room at the same time.
+                # Remove values from other domains if they cointain an instructor that 
+                # already gives the maximun number of lectures.
+                if (new_assignment.overlaps_instructor_at_time(assignment) or
+                    new_assignment.overlaps_room_at_time(assignment) or
+                    assignment.instructor in busy_instructors):
+                    schedule[lecture].discard(assignment)
+                    # Check whether the removal makes the domain empty.
+                    if not schedule[lecture]:
+                        raise ImpossibleAssignments('Assignment leads to inconsistencies.')
         
-    def _satisfies_instructor_double_occupancy(self, schedule):
-        """No room can be used twice at the same timeslot."""
-        instructor_timeslot_counts = Counter([(assignment.instructor, assignment.timeslot) 
-                                      for assignment in schedule.values() 
-                                      if assignment is not None])
-#         print(instructor_timeslot_counts)
-        for count in instructor_timeslot_counts.values():
-            if count > 1:
-                return False
-        return True     
-                            
-    def _satisfies_room_double_occupancy(self, schedule):
-        """No instructor can give two lectures at the same time."""
-        room_timeslot_counts = Counter([(assignment.room, assignment.timeslot) 
-                                      for assignment in schedule.values()
-                                      if assignment is not None])
-        for count in room_timeslot_counts.values():
-            if count > 1:
-                return False
-        return True                        
-    
-    def _satisfies_maximal_number_of_instructor(self, schedule):
+        return schedule
+
+    def _resolve_small_domains(self, schedule):
+        """
+        Assign domains with a cardinality of one and reduce domains further.
+        """
+        while(self._contains_small_domains(schedule)):
+            for lecture in self._get_unassigned_vars(schedule):
+                if len(schedule[lecture]) == 1:
+                    assignment = schedule[lecture].pop()
+                    schedule[lecture] = assignment
+                    schedule = self._reduce_domains(schedule, assignment)
+
+        return schedule
+        
+    def _get_busy_instructors(self, schedule):
         """Check whether an instructor gives too many lectures."""
         instructor_counts = Counter([assignment.instructor 
                                       for assignment in schedule.values()
-                                      if assignment is not None])
-        
-        for count in instructor_counts.values():
+                                      if not isinstance(assignment, set)])
+        busy_instructors = set()
+        for instructor, count in instructor_counts.items():
             if count > self._max_lectures_per_instructor:
+                busy_instructors.add(instructor)
+        return busy_instructors    
+        
+    def _init_schedule_dict(self):
+        """
+        Initialize schedule where each lecture is mapped to all possible assignments.
+        """
+        schedule = {}
+        for lecture in self._lectures:
+            domain = set()
+            for assignment in self._assignments:
+                if assignment.satisfies_constraints(lecture):
+                    domain.add(assignment)
+            schedule[lecture] = domain
+        return schedule
+    
+    def _schedule_complete(self, schedule):
+        """Check whether there are still unassigned variables in the schedule."""
+        for assignment in schedule.values():
+            if isinstance(assignment, set):
                 return False
-        return True    
+        return True
+    
+    def _get_unassigned_vars(self, schedule, sort=False):
+        """Get all variables that have not yet been assigned a value."""
+        if sorted:
+            schedule = sort_dict_by_mrv(schedule)
+        
+        unassigned_lectures = []
+        for lecture, assignment in schedule.items():
+            if isinstance(assignment, set):
+                unassigned_lectures.append(lecture)
+        return unassigned_lectures
+    
+    def _contains_small_domains(self, schedule):
+        """Check whether the CSP contains a domain of cardinality one."""
+        for assignment in schedule.values():
+            if isinstance(assignment, set) and len(assignment) == 1:
+                return True
+        return False
         
     def _save_schedule_in_dataframe(self):
         
@@ -129,8 +187,10 @@ class Timetable():
         df = DataFrame(schedule_ll, columns=['Lecture', 'Time', 'Instructor', 'Room'])
         df.sort_values('Time', inplace=True)
         return df
-        
-        
+
+
+# ----------------- helper methods for initialization ------------------
+     
     def _construct_assignments(self):
         """
         Construct possible combinations of instructor, room and timeslot.
@@ -144,7 +204,6 @@ class Timetable():
                         assignments.append(Assignment(instructor, room, timeslot))
         return assignments
         
-    
     def _construct_lectures(self, lecture_list):
         """Construct lectures from list specification."""
         lectures = []
@@ -155,7 +214,6 @@ class Timetable():
                 warnings.warn('Lecture %s specified more than once.' % name)
                 
         return lectures
-                
         
     def _construct_instructors(self, instructor_list):
         """Construct instructors from list specification."""
@@ -167,7 +225,6 @@ class Timetable():
                 instructor_spec[2], instructor_spec[3])
             instructors.append(Instructor(name, lectures, timeslots))
         return instructors
-            
             
     def _construct_rooms(self, room_list):
         """Construct rooms from list specification."""
@@ -204,18 +261,15 @@ class Timetable():
                 
         return timeslots
         
-            
         
+# --------------------------- dunder methods ---------------------------
+       
     def __repr__(self):
         return '<Timetable {}'.format(vars(self))
         
     def __str__(self):
-        
         if self._scheduled:
             return format_for_print(self._schedule_df)
-#             return str(self._schedule_df)
-                
-        
         else:
             return "Unscheduled timetable"
             
