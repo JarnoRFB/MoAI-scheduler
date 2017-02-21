@@ -5,8 +5,10 @@ from collections import OrderedDict
 from prettytable import PrettyTable
     
     
-def format_for_print(df):    
+def format_for_print(df):
+    """Print dataframe as pretty table."""    
     table = PrettyTable(list(df.columns))
+    
     for row in df.itertuples():
         table.add_row(row[1:])
     return str(table)

@@ -69,6 +69,8 @@ class Timetable():
             print(list(self._get_unassigned_vars(schedule)))
 
         schedule = deepcopy(schedule)
+        
+        # Iterate over unassigned variables.
         for lecture in self._get_unassigned_vars(schedule, sort=True):
             # Iterate over domain.
             domain = deepcopy(schedule[lecture])
@@ -102,6 +104,7 @@ class Timetable():
             if not schedule[lecture]:
                 raise ImpossibleAssignments('Assignment leads to inconsistencies.')
             domain = deepcopy(schedule[lecture])
+            
             for assignment in domain:
                 # Remove values from other domains if they cointain the same instructor at the same time.
                 # Remove values from other domains if they cointain the same room at the same time.
@@ -136,6 +139,7 @@ class Timetable():
                                       for assignment in schedule.values()
                                       if not isinstance(assignment, set)])
         busy_instructors = set()
+        
         for instructor, count in instructor_counts.items():
             if count > self._max_lectures_per_instructor:
                 busy_instructors.add(instructor)
@@ -146,6 +150,7 @@ class Timetable():
         Initialize schedule where each lecture is mapped to all possible assignments.
         """
         schedule = {}
+        
         for lecture in self._lectures:
             domain = set()
             for assignment in self._assignments:
@@ -167,6 +172,7 @@ class Timetable():
             schedule = sort_dict_by_mrv(schedule)
         
         unassigned_lectures = []
+        
         for lecture, assignment in schedule.items():
             if isinstance(assignment, set):
                 unassigned_lectures.append(lecture)
@@ -180,8 +186,9 @@ class Timetable():
         return False
         
     def _save_schedule_in_dataframe(self):
-        
+        """Save the schedule dictionary to a pandas dataframe."""
         schedule_ll = []
+        
         for lecture, assignment in self._schedule.items():
             schedule_ll.append([str(lecture), str(assignment.timeslot), str(assignment.instructor), str(assignment.room)])
         df = DataFrame(schedule_ll, columns=['Lecture', 'Time', 'Instructor', 'Room'])
