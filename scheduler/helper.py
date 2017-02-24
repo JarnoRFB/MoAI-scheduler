@@ -18,6 +18,10 @@ def sort_dict_by_mrv(d):
     """Sort dictionary according to minimun remaining values heuristic."""
     return OrderedDict(sorted(d.items(), key=lambda x: len(x[1]) if isinstance(x[1], set) else 0))
 
+def get_first_element(iterable):
+    
+    return next(iter(iterable))
+
 
 
 

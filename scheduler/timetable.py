@@ -7,6 +7,7 @@ import warnings
 from collections import Counter
 from pandas import DataFrame
 import time
+import operator
 
 
 class Timetable():
@@ -15,7 +16,8 @@ class Timetable():
     according to constraints. 
     """
     def __init__(self, lecture_list, instructor_list, 
-                 room_list, timeslot_list, max_lectures_per_instructor):
+                 room_list, timeslot_list, max_lectures_per_instructor,
+                 print_intermediate_results=False):
         """
         Constructor
         """
@@ -23,6 +25,7 @@ class Timetable():
         self._instructors = self._construct_instructors(instructor_list)
         self._rooms = self._construct_rooms(room_list)
         self._timeslots = self._construct_timeslots(timeslot_list)
+        self.print_intermediate_results = print_intermediate_results
         self._scheduled = False
         self._schedule = {}
         self._schedule_df = None
@@ -58,15 +61,16 @@ class Timetable():
         if self._schedule_complete(schedule):
             return schedule
         
-        # Print the current state of the scheduler every ten seconds.
-        if int(time.time()) % 10 == 0:
-            print('\n')
-            print(schedule)
-            n_assigned = 0
-            for a in schedule.values():
-                if not isinstance(a, set): n_assigned += 1
-            print('assigned: ', n_assigned)
-            print(list(self._get_unassigned_vars(schedule)))
+        if self.print_intermediate_results:
+            # Print the current state of the scheduler every ten seconds.
+            if int(time.time()) % 10 == 0:
+                print('\n')
+                print(schedule)
+                n_assigned = 0
+                for a in schedule.values():
+                    if not isinstance(a, set): n_assigned += 1
+                print('assigned: ', n_assigned)
+                print(list(self._get_unassigned_vars(schedule)))
 
         schedule = deepcopy(schedule)
         
@@ -74,7 +78,7 @@ class Timetable():
         for lecture in self._get_unassigned_vars(schedule, sort=True):
             # Iterate over domain.
             domain = deepcopy(schedule[lecture])
-            for assignment in domain:
+            for assignment in self._sort_by_lcv(domain, lecture, schedule):
                 schedule[lecture] = assignment
                 # Propagate constraints.
                 try:
@@ -177,6 +181,51 @@ class Timetable():
             if isinstance(assignment, set):
                 unassigned_lectures.append(lecture)
         return unassigned_lectures
+    
+#     def _sort_by_lcv(self, domain, lecture, schedule):
+#         """Sort the values in a domain according to least-constraining-value heuristic."""
+#         schedule = deepcopy(schedule)
+#         max_total_domain_cardinality = -float('inf')
+#         least_constraining_value = None
+#         for value in domain:
+#             # Assign value to lecture and reduce the other domains.
+#             try:
+#                 assigned_schedule = deepcopy(schedule)
+#                 assigned_schedule[lecture] = value
+#                 total_domain_cardinality = self._reduce_domains(assigned_schedule, value)
+#                 if total_domain_cardinality > max_total_domain_cardinality:
+#                     least_constraining_value = value
+#                     max_total_domain_cardinality = total_domain_cardinality
+#             except ImpossibleAssignments:
+#                 continue
+    
+    def _sort_by_lcv(self, domain, lecture, schedule):
+        """Sort the values in a domain according to least-constraining-value heuristic."""
+        schedule = deepcopy(schedule)
+        value_cardinality = {value: 0 for value in domain}
+        for value in domain:
+            # Assign value to lecture and reduce the other domains.
+            try:
+                assigned_schedule = deepcopy(schedule)
+                assigned_schedule[lecture] = value
+                value_cardinality[value] = self._get_number_of_remaining_values(
+                    self._reduce_domains(assigned_schedule, value)
+                )
+            except ImpossibleAssignments:
+                continue
+            
+        sorted_tuples = sorted(value_cardinality.items(), key=operator.itemgetter(1), reverse=True)
+        sorted_values = (tup[0] for tup in sorted_tuples)
+        return sorted_values
+            
+            
+    def _get_number_of_remaining_values(self, schedule):
+        """Get the number of remaining values in all domains."""
+        n_total = 0
+        for lecture in self._get_unassigned_vars(schedule):
+            n_total += len(schedule[lecture])
+        
+        return n_total
     
     def _contains_small_domains(self, schedule):
         """Check whether the CSP contains a domain of cardinality one."""
