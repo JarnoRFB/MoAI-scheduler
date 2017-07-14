@@ -182,23 +182,6 @@ class Timetable():
                 unassigned_lectures.append(lecture)
         return unassigned_lectures
     
-#     def _sort_by_lcv(self, domain, lecture, schedule):
-#         """Sort the values in a domain according to least-constraining-value heuristic."""
-#         schedule = deepcopy(schedule)
-#         max_total_domain_cardinality = -float('inf')
-#         least_constraining_value = None
-#         for value in domain:
-#             # Assign value to lecture and reduce the other domains.
-#             try:
-#                 assigned_schedule = deepcopy(schedule)
-#                 assigned_schedule[lecture] = value
-#                 total_domain_cardinality = self._reduce_domains(assigned_schedule, value)
-#                 if total_domain_cardinality > max_total_domain_cardinality:
-#                     least_constraining_value = value
-#                     max_total_domain_cardinality = total_domain_cardinality
-#             except ImpossibleAssignments:
-#                 continue
-    
     def _sort_by_lcv(self, domain, lecture, schedule):
         """Sort the values in a domain according to least-constraining-value heuristic."""
         schedule = deepcopy(schedule)
@@ -217,7 +200,6 @@ class Timetable():
         sorted_tuples = sorted(value_cardinality.items(), key=operator.itemgetter(1), reverse=True)
         sorted_values = (tup[0] for tup in sorted_tuples)
         return sorted_values
-            
             
     def _get_number_of_remaining_values(self, schedule):
         """Get the number of remaining values in all domains."""
